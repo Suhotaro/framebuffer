@@ -120,11 +120,6 @@ void fb_init(void)
 		ERROR("Failed open FB device\n");
 	INFO("Open FB - OK");
 
-	res = ioctl(fb_dev.fb_fd, FBIOGET_FSCREENINFO, finfo);
-	if ( res < 0)
-		ERROR("1: FBIOGET_FSCREENINFO failed\n  errno=%d", errno);
-
-
 	res = ioctl(fb_dev.fb_fd, FBIOGET_VSCREENINFO, vinfo);
 	if ( res < 0)
 		ERROR("2: FBIOGET_VSCREENINFO failed\n  errno=%d", errno);
@@ -148,7 +143,7 @@ void fb_init(void)
 
 	vinfo->yres_virtual = vinfo->yres * MAX_BUF;
 
-	res = ioctl(fb_dev.fb_fd, FBIOPUT_VSCREENINFO, vinfo);
+	res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, vinfo);
 	if(res < 0)
 	{
 		INFO("3: FBIOPUT_VSCREENINFO failed\n  errno=%d", errno);
@@ -161,11 +156,6 @@ void fb_init(void)
 		vinfo->yres_virtual = vinfo->yres;
 		INFO("Page flip not supported\n");
 	}
-
-	res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, vinfo);
-	if (res < 0)
-		ERROR("4: FBIOGET_VSCREENINFO failed\n  errno=%d", errno);
-
 
 	fb_dev.width = vinfo->xres;
 	fb_dev.height = vinfo->yres;
@@ -244,9 +234,14 @@ void fb_init(void)
 	memset(fb_dev.vaddr, 0, fb_size);
 
 
+	/*
+	 * This ioctl is used in Android sources, don't know what is it for?
+	 */
+    /*
 	res = ioctl(fb_dev.fb_fd, FBIOBLANK, FB_BLANK_UNBLANK);
 	if ( res < 0)
 		ERROR("6: FBIOGET_FSCREENINFO failed\n  errno=%d", errno);
+	*/
 
 
 	free(vinfo);
@@ -261,12 +256,5 @@ void draw(unsigned char a, unsigned char r, unsigned char g, unsigned char b)
 	for (i = 0; i < fb_dev.width * fb_dev.height; i++)
 		pixel[i] = (a << 24) | (b << 16) | (g << 8) | r;
 }
-
-
-
-
-
-
-
 
 
