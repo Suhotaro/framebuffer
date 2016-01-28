@@ -1,8 +1,8 @@
 AC_PREREQ([2.60])
-AC_INIT([libtdm-drm],
+AC_INIT([fbdev_simple],
         [1.0.0],
         [https://www.tizen.org],
-        [libtdm-drm])
+        [fbdev_simple])
 
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_SRCDIR([Makefile.am])
