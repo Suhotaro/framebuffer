@@ -124,6 +124,10 @@ void fb_init(void)
 	if ( res < 0)
 		ERROR("2: FBIOGET_VSCREENINFO failed\n  errno=%d", errno);
 
+/*
+	vinfo->yres     = 16;
+	vinfo->xres     = 8;
+*/
 
 	vinfo->reserved[0] = 0;
 	vinfo->reserved[1] = 0;
@@ -142,6 +146,13 @@ void fb_init(void)
 	vinfo->transp.length  = 0;
 
 	vinfo->yres_virtual = vinfo->yres * MAX_BUF;
+/*
+	res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, vinfo);
+	if(res < 0)
+	{
+		INFO("2.5: FBIOPUT_VSCREENINFO failed\n  errno=%d", errno);
+	}
+*/
 
 	res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, vinfo);
 	if(res < 0)
@@ -207,9 +218,9 @@ void fb_init(void)
 		INFO("SMEM less then 0");
 
 
-	fb_size = finfo->line_length * vinfo->yres;
+	fb_size = vinfo->xres * vinfo->yres_virtual;
 	fb_size_round_up = round_up_to_page_size(vinfo->xres * vinfo->yres * vinfo->bits_per_pixel / 8);
-	size_t size = vinfo->xres * vinfo->yres * vinfo->bits_per_pixel / 8;
+	size_t size = vinfo->xres * vinfo->yres * vinfo->bits_per_pixel / 8 * 3;
 
 	INFO("\n"
 		 " FB\n"
@@ -224,14 +235,14 @@ void fb_init(void)
 			sysconf(_SC_PAGESIZE),
 			sysconf(_SC_PAGE_SIZE));
 
-	fb_dev.vaddr = mmap(0, fb_size, PROT_READ|PROT_WRITE, MAP_SHARED, fb_dev.fb_fd, 0);
+	fb_dev.vaddr = mmap(0, size, PROT_READ|PROT_WRITE, MAP_SHARED, fb_dev.fb_fd, 0);
 	if (fb_dev.vaddr == MAP_FAILED)
 		ERROR("MMap failed, errno=%d", errno);
 	INFO("MMap - OK\n  vaddr=%p", fb_dev.vaddr);
 
-	fb_dev.size = fb_size;
+	fb_dev.size = size;
 
-	memset(fb_dev.vaddr, 0, fb_size);
+	memset(fb_dev.vaddr, 0, size);
 
 
 	/*
