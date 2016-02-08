@@ -47,12 +47,16 @@ typedef struct
 	int height;
 
 	int size;
+
+	struct fb_fix_screeninfo *finfo;
+	struct fb_var_screeninfo *vinfo;
 } fb_device;
 
 fb_device fb_dev;
 
 void fb_init(void);
 void draw(unsigned char a, unsigned char r, unsigned char g, unsigned char b);
+void fill_draw(void);
 
 inline size_t round_up_to_page_size(size_t x)
 {
@@ -63,6 +67,9 @@ int main (int argc, char **argv)
 {
 	struct timeval start;
 	struct timeval current;
+
+	int res = 0;
+	int flag = 0;
 
 	unsigned char a = 0x00;
 	unsigned char r = 0xFF;
@@ -83,24 +90,57 @@ int main (int argc, char **argv)
 		a = (unsigned char)atoi(argv[4]);
 	}
 
+	(void) r;
+	(void) g;
+	(void) b;
+	(void) a;
+
 	fb_init();
-	close(fb_dev.fb_fd);
 	INFO("Feamebuffer Init - OK");
 
 	gettimeofday(&start, NULL);
 
 	INFO("  width=%d\n  height=%d", fb_dev.width, fb_dev.height);
 
+	fill_draw();
+
 	while(current.tv_sec <= start.tv_sec + 5)
 	{
+		//sleep(1);
+		int crtc = 0;
+
 		printf("time:%ld\n", (long)current.tv_sec);
 
-		draw(a, r, g, b);
+		res = ioctl(fb_dev.fb_fd, FBIO_WAITFORVSYNC, &crtc);
+		if(res < 0)
+			INFO("FBIO_WAITFORVSYNC failed %d", errno);
+
+		flag ^= 1;
+		if (!flag)
+		{
+			fb_dev.vinfo->activate = FB_ACTIVATE_VBL;
+			fb_dev.vinfo->xoffset = 0;
+			fb_dev.vinfo->yoffset = 0;
+
+			res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, fb_dev.vinfo);
+			if(res < 0)
+				INFO("FBIOPAN_DISPLAY failed %d", errno);
+		}
+		else
+		{
+			fb_dev.vinfo->activate = FB_ACTIVATE_VBL;
+			fb_dev.vinfo->xoffset = 0;
+			fb_dev.vinfo->yoffset = fb_dev.vinfo->yres;
+
+			res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, fb_dev.vinfo);
+			if(res < 0)
+				INFO("FBIOPAN_DISPLAY failed %d", errno);
+		}
 
 		gettimeofday(&current, NULL);
 	}
 
-
+	close(fb_dev.fb_fd);
 	INFO("Evrefing - OK");
 
 	return OK;
@@ -109,11 +149,11 @@ int main (int argc, char **argv)
 void fb_init(void)
 {
 	const char *name = "/dev/fb0";
-	int res = NONE;
-	struct fb_fix_screeninfo *finfo = calloc(1, sizeof(struct fb_fix_screeninfo));
-	struct fb_var_screeninfo *vinfo = calloc(1, sizeof(struct fb_var_screeninfo));
+	fb_dev.finfo = calloc(1, sizeof(struct fb_fix_screeninfo));
+	fb_dev.vinfo = calloc(1, sizeof(struct fb_var_screeninfo));
 	size_t fb_size;
 	size_t fb_size_round_up;
+	int res = NONE;
 
 
 	fb_dev.fb_fd = open(name, O_RDWR);
@@ -121,60 +161,60 @@ void fb_init(void)
 		ERROR("Failed open FB device\n");
 	INFO("Open FB - OK");
 
-	res = ioctl(fb_dev.fb_fd, FBIOGET_VSCREENINFO, vinfo);
+	res = ioctl(fb_dev.fb_fd, FBIOGET_VSCREENINFO, fb_dev.vinfo);
 	if ( res < 0)
 		ERROR("2: FBIOGET_VSCREENINFO failed\n  errno=%d", errno);
 
 /*
-	vinfo->yres     = 16;
-	vinfo->xres     = 8;
+	fb_dev.vinfo->yres     = 16;
+	fb_dev.vinfo->xres     = 8;
 */
 
-	vinfo->reserved[0] = 0;
-	vinfo->reserved[1] = 0;
-	vinfo->reserved[2] = 0;
-	vinfo->xoffset = 0;
-	vinfo->yoffset = 0;
-	vinfo->activate = FB_ACTIVATE_NOW;
-	vinfo->bits_per_pixel = 32;
-	vinfo->red.offset     = 16;
-	vinfo->red.length     = 8;
-	vinfo->green.offset   = 8;
-	vinfo->green.length   = 8;
-	vinfo->blue.offset    = 0;
-	vinfo->blue.length    = 8;
-	vinfo->transp.offset  = 0;
-	vinfo->transp.length  = 0;
+	fb_dev.vinfo->reserved[0] = 0;
+	fb_dev.vinfo->reserved[1] = 0;
+	fb_dev.vinfo->reserved[2] = 0;
+	fb_dev.vinfo->xoffset = 0;
+	fb_dev.vinfo->yoffset = 0;
+	fb_dev.vinfo->activate = FB_ACTIVATE_VBL;;
+	fb_dev.vinfo->bits_per_pixel = 32;
+	fb_dev.vinfo->red.offset     = 16;
+	fb_dev.vinfo->red.length     = 8;
+	fb_dev.vinfo->green.offset   = 8;
+	fb_dev.vinfo->green.length   = 8;
+	fb_dev.vinfo->blue.offset    = 0;
+	fb_dev.vinfo->blue.length    = 8;
+	fb_dev.vinfo->transp.offset  = 0;
+	fb_dev.vinfo->transp.length  = 0;
 
-	vinfo->yres_virtual = vinfo->yres * MAX_BUF;
+	fb_dev.vinfo->yres_virtual = fb_dev.vinfo->yres * MAX_BUF;
 /*
-	res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, vinfo);
+	res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, fb_dev.vinfo);
 	if(res < 0)
 	{
 		INFO("2.5: FBIOPUT_VSCREENINFO failed\n  errno=%d", errno);
 	}
 */
 
-	res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, vinfo);
+	res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, fb_dev.vinfo);
 	if(res < 0)
 	{
 		INFO("3: FBIOPUT_VSCREENINFO failed\n  errno=%d", errno);
-		vinfo->yres_virtual = vinfo->yres;
+		fb_dev.vinfo->yres_virtual = fb_dev.vinfo->yres;
 		INFO("Page flip not supported\n");
 	}
 
-	if(vinfo->yres_virtual < (vinfo->yres *MAX_BUF))
+	if(fb_dev.vinfo->yres_virtual < (fb_dev.vinfo->yres *MAX_BUF))
 	{
-		vinfo->yres_virtual = vinfo->yres;
+		fb_dev.vinfo->yres_virtual = fb_dev.vinfo->yres;
 		INFO("Page flip not supported\n");
 	}
 
-	fb_dev.width = vinfo->xres;
-	fb_dev.height = vinfo->yres;
+	fb_dev.width = fb_dev.vinfo->xres;
+	fb_dev.height = fb_dev.vinfo->yres;
 
 
 	INFO("\n"
-		 " VInfo\n"
+		 " fb_dev.vinfo\n"
 		 "   fb           = %d\n"
 		 "   id           = %s\n"
 		 "   xres         = %d px \n"
@@ -190,38 +230,38 @@ void fb_init(void)
 		 "   width        = %d mm \n"
 		 "   height       = %d mm \n",
 		  fb_dev.fb_fd,
-		  finfo->id,
-		  vinfo->xres,
-		  vinfo->yres,
-		  vinfo->xres_virtual,
-		  vinfo->yres_virtual,
-		  vinfo->bits_per_pixel,
-		  vinfo->red.offset, vinfo->red.length,
-		  vinfo->green.offset, vinfo->green.length,
-		  vinfo->blue.offset, vinfo->blue.length,
-		  vinfo->transp.offset, vinfo->transp.length,
-		  vinfo->activate,
-		  vinfo->width,
-		  vinfo->height);
+		  fb_dev.finfo->id,
+		  fb_dev.vinfo->xres,
+		  fb_dev.vinfo->yres,
+		  fb_dev.vinfo->xres_virtual,
+		  fb_dev.vinfo->yres_virtual,
+		  fb_dev.vinfo->bits_per_pixel,
+		  fb_dev.vinfo->red.offset, fb_dev.vinfo->red.length,
+		  fb_dev.vinfo->green.offset, fb_dev.vinfo->green.length,
+		  fb_dev.vinfo->blue.offset, fb_dev.vinfo->blue.length,
+		  fb_dev.vinfo->transp.offset, fb_dev.vinfo->transp.length,
+		  fb_dev.vinfo->activate,
+		  fb_dev.vinfo->width,
+		  fb_dev.vinfo->height);
 
-	res = ioctl(fb_dev.fb_fd, FBIOGET_FSCREENINFO, finfo);
+	res = ioctl(fb_dev.fb_fd, FBIOGET_FSCREENINFO, fb_dev.finfo);
 	if (res < 0)
 		ERROR("5: FBIOGET_FSCREENINFO failed\n  errno=%d", errno);
 
 	INFO("\n"
-		 " FInfo\n"
-		 "   finfo->smem_len     = %d\n"
-		 "   finfo->line_length  = %d\n",
-		 finfo->smem_len,
-		 finfo->line_length);
+		 " fb_dev.finfo\n"
+		 "   fb_dev.finfo->smem_len     = %d\n"
+		 "   fb_dev.finfo->line_length  = %d\n",
+		 fb_dev.finfo->smem_len,
+		 fb_dev.finfo->line_length);
 
-	if (finfo->smem_len <= 0)
+	if (fb_dev.finfo->smem_len <= 0)
 		INFO("SMEM less then 0");
 
 
-	fb_size = vinfo->xres * vinfo->yres_virtual;
-	fb_size_round_up = round_up_to_page_size(vinfo->xres * vinfo->yres * vinfo->bits_per_pixel / 8);
-	size_t size = vinfo->xres * vinfo->yres * vinfo->bits_per_pixel / 8 * 3;
+	fb_size = fb_dev.vinfo->xres * fb_dev.vinfo->yres_virtual;
+	fb_size_round_up = round_up_to_page_size(fb_dev.vinfo->xres * fb_dev.vinfo->yres * fb_dev.vinfo->bits_per_pixel / 8);
+	size_t size = fb_dev.vinfo->xres * fb_dev.vinfo->yres * fb_dev.vinfo->bits_per_pixel / 8 * 3;
 
 	INFO("\n"
 		 " FB\n"
@@ -238,19 +278,19 @@ void fb_init(void)
 
 	int refreshRate = 1000000000000000LLU /
 	    (
-	        (uint64_t)( vinfo->upper_margin + vinfo->lower_margin + vinfo->yres + vinfo->vsync_len)
-	        * ( vinfo->left_margin  + vinfo->right_margin + vinfo->xres + vinfo->hsync_len)
-	        * vinfo->pixclock
+	        (uint64_t)( fb_dev.vinfo->upper_margin + fb_dev.vinfo->lower_margin + fb_dev.vinfo->yres + fb_dev.vinfo->vsync_len)
+	        * ( fb_dev.vinfo->left_margin  + fb_dev.vinfo->right_margin + fb_dev.vinfo->xres + fb_dev.vinfo->hsync_len)
+	        * fb_dev.vinfo->pixclock
 	    );
 
 	INFO("\n"
 		 " My\n"
-		 "   refresh   =%d"
+		 "   refresh    =%d"
 		 "   vsync_len  =%d"
 		 "   hvsync_len =%d",
 		 refreshRate,
-		 vinfo->vsync_len,
-		 vinfo->hsync_len
+		 fb_dev.vinfo->vsync_len,
+		 fb_dev.vinfo->hsync_len
 		 );
 
 
@@ -274,9 +314,32 @@ void fb_init(void)
 	*/
 
 
-	free(vinfo);
-	free(finfo);
+	free(fb_dev.vinfo);
+	free(fb_dev.finfo);
 }
+
+void fill_draw(void)
+{
+	unsigned char r = 255;
+	unsigned char g = 0;
+	unsigned char b = 0;
+	unsigned char a = 0;
+
+	unsigned int *pixel = (unsigned int *)fb_dev.vaddr;
+	int i = 0;
+
+	for (i = 0; i < fb_dev.width * fb_dev.height; i++)
+		pixel[i] = (a << 24) | (b << 16) | (g << 8) | r;
+
+	r = 0;
+	g = 0;
+	b = 255;
+	a = 0;
+
+	for (i = 0; i < fb_dev.width * fb_dev.height; i++)
+		pixel[i + (fb_dev.width * fb_dev.height)] = (a << 24) | (b << 16) | (g << 8) | r;
+}
+
 
 void draw(unsigned char a, unsigned char r, unsigned char g, unsigned char b)
 {
