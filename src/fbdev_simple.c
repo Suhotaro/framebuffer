@@ -10,6 +10,7 @@
 #include <fcntl.h>
 #include <sys/ioctl.h>
 #include <linux/fb.h>
+#include <stdint.h>
 #include <sys/mman.h>
 #include <sys/time.h>
 
@@ -234,6 +235,24 @@ void fb_init(void)
 			size,
 			sysconf(_SC_PAGESIZE),
 			sysconf(_SC_PAGE_SIZE));
+
+	int refreshRate = 1000000000000000LLU /
+	    (
+	        (uint64_t)( vinfo->upper_margin + vinfo->lower_margin + vinfo->yres + vinfo->vsync_len)
+	        * ( vinfo->left_margin  + vinfo->right_margin + vinfo->xres + vinfo->hsync_len)
+	        * vinfo->pixclock
+	    );
+
+	INFO("\n"
+		 " My\n"
+		 "   refresh   =%d"
+		 "   vsync_len  =%d"
+		 "   hvsync_len =%d",
+		 refreshRate,
+		 vinfo->vsync_len,
+		 vinfo->hsync_len
+		 );
+
 
 	fb_dev.vaddr = mmap(0, size, PROT_READ|PROT_WRITE, MAP_SHARED, fb_dev.fb_fd, 0);
 	if (fb_dev.vaddr == MAP_FAILED)
