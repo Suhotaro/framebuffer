@@ -13,6 +13,8 @@
 #include <stdint.h>
 #include <sys/mman.h>
 #include <sys/time.h>
+#include <time.h>
+#include <pthread.h>
 
 #define MAX_BUF 3
 
@@ -31,11 +33,25 @@ do {                           \
 		##arg);                \
 }  while(0);
 
+#define CONCAT(str) #str
+
 enum
 {
 	NONE = -1,
 	OK = 0,
 	ERROR = 1,
+};
+
+enum
+{
+	DEFAULT = -1,
+	DRAW = 0,
+	RANDOM_COLOR,
+	DPMS_ON,
+	DPMS_OFF,
+	DPMS_STANDBY,
+	DPMS_SUSPEND,
+	REINIT,
 };
 
 typedef struct
@@ -52,98 +68,55 @@ typedef struct
 	struct fb_var_screeninfo *vinfo;
 } fb_device;
 
-fb_device fb_dev;
+/*--------------------------- Globals ---------------------------*/
+static fb_device fb_dev;
+static int cmd = DRAW;
+unsigned char r = 0xFF, g = 0x00, b = 0x00;
+int flag = 0;
 
+void *fb_routine(void *ptr);
+void *console_routine(void *ptr);
+
+void page_flip(unsigned char r, unsigned char g, unsigned char b);
 void fb_init(void);
-void draw(unsigned char a, unsigned char r, unsigned char g, unsigned char b);
-void fill_draw(void);
+
+void DPMS_set(int dpms_value);
+
+void draw_with_offset(unsigned char a,
+		              unsigned char r,
+					  unsigned char g,
+					  unsigned char b,
+					  unsigned int offset);
 
 inline size_t round_up_to_page_size(size_t x)
 {
     return (x + (sysconf(_SC_PAGE_SIZE) - 1)) & ~(sysconf(_SC_PAGE_SIZE)-1);
 }
 
-int main (int argc, char **argv)
+int main()
 {
-	struct timeval start;
-	struct timeval current;
+	pthread_t thr1, thr2;
 
-	int res = 0;
-	int flag = 0;
+	int ret;
 
-	unsigned char a = 0x00;
-	unsigned char r = 0xFF;
-	unsigned char g = 0x00;
-	unsigned char b = 0x00;
-
-	if (argc > 1)
+	ret = pthread_create(&thr1, NULL, fb_routine, NULL);
+	if (ret)
 	{
-		printf("color %d %d %d %d\n",
-				(unsigned char)atoi(argv[1]),
-				(unsigned char)atoi(argv[2]),
-				(unsigned char)atoi(argv[3]),
-				(unsigned char)atoi(argv[4]));
-
-		r = (unsigned char)atoi(argv[1]);
-		g = (unsigned char)atoi(argv[2]);
-		b = (unsigned char)atoi(argv[3]);
-		a = (unsigned char)atoi(argv[4]);
+		perror ("Failed create first thread\n");
+		exit(1);
 	}
 
-	(void) r;
-	(void) g;
-	(void) b;
-	(void) a;
-
-	fb_init();
-	INFO("Feamebuffer Init - OK");
-
-	gettimeofday(&start, NULL);
-
-	INFO("  width=%d\n  height=%d", fb_dev.width, fb_dev.height);
-
-	fill_draw();
-
-	while(current.tv_sec <= start.tv_sec + 5)
+	ret = pthread_create(&thr2, NULL, console_routine, NULL);
+	if (ret)
 	{
-		//sleep(1);
-		int crtc = 0;
-
-		printf("time:%ld\n", (long)current.tv_sec);
-
-		res = ioctl(fb_dev.fb_fd, FBIO_WAITFORVSYNC, &crtc);
-		if(res < 0)
-			INFO("FBIO_WAITFORVSYNC failed %d", errno);
-
-		flag ^= 1;
-		if (!flag)
-		{
-			fb_dev.vinfo->activate = FB_ACTIVATE_VBL;
-			fb_dev.vinfo->xoffset = 0;
-			fb_dev.vinfo->yoffset = 0;
-
-			res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, fb_dev.vinfo);
-			if(res < 0)
-				INFO("FBIOPAN_DISPLAY failed %d", errno);
-		}
-		else
-		{
-			fb_dev.vinfo->activate = FB_ACTIVATE_VBL;
-			fb_dev.vinfo->xoffset = 0;
-			fb_dev.vinfo->yoffset = fb_dev.vinfo->yres;
-
-			res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, fb_dev.vinfo);
-			if(res < 0)
-				INFO("FBIOPAN_DISPLAY failed %d", errno);
-		}
-
-		gettimeofday(&current, NULL);
+		perror ("Failed create first thread\n");
+		exit(1);
 	}
 
-	close(fb_dev.fb_fd);
-	INFO("Evrefing - OK");
+	pthread_join(thr1, NULL);
+	pthread_join(thr2, NULL);
 
-	return OK;
+	return 0;
 }
 
 void fb_init(void)
@@ -305,7 +278,7 @@ void fb_init(void)
 
 
 	/*
-	 * This ioctl is used in Android sources, don't know what is it for?
+	 * DPMS ON
 	 */
     /*
 	res = ioctl(fb_dev.fb_fd, FBIOBLANK, FB_BLANK_UNBLANK);
@@ -313,41 +286,227 @@ void fb_init(void)
 		ERROR("6: FBIOGET_FSCREENINFO failed\n  errno=%d", errno);
 	*/
 
-
 	free(fb_dev.vinfo);
 	free(fb_dev.finfo);
 }
 
-void fill_draw(void)
-{
-	unsigned char r = 255;
-	unsigned char g = 0;
-	unsigned char b = 0;
-	unsigned char a = 0;
-
-	unsigned int *pixel = (unsigned int *)fb_dev.vaddr;
-	int i = 0;
-
-	for (i = 0; i < fb_dev.width * fb_dev.height; i++)
-		pixel[i] = (a << 24) | (b << 16) | (g << 8) | r;
-
-	r = 0;
-	g = 0;
-	b = 255;
-	a = 0;
-
-	for (i = 0; i < fb_dev.width * fb_dev.height; i++)
-		pixel[i + (fb_dev.width * fb_dev.height)] = (a << 24) | (b << 16) | (g << 8) | r;
-}
-
-
-void draw(unsigned char a, unsigned char r, unsigned char g, unsigned char b)
+void draw_with_offset(unsigned char a,
+		              unsigned char r,
+					  unsigned char g,
+					  unsigned char b,
+					  unsigned int offset)
 {
 	unsigned int *pixel = (unsigned int *)fb_dev.vaddr;
 	int i = 0;
 
 	for (i = 0; i < fb_dev.width * fb_dev.height; i++)
-		pixel[i] = (a << 24) | (b << 16) | (g << 8) | r;
+		pixel[i + offset] = (a << 24) | (b << 16) | (g << 8) | r;
 }
+
+void page_flip(unsigned char r, unsigned char g, unsigned char b)
+{
+	int crtc = 0;
+	int res = 0;
+
+	flag ^= 1;
+	if (flag)
+	{
+		draw_with_offset(0, r, g, b, fb_dev.width * fb_dev.height);
+
+		fb_dev.vinfo->activate = FB_ACTIVATE_VBL;
+		fb_dev.vinfo->xoffset = 0;
+		fb_dev.vinfo->yoffset = 0;
+
+		res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, fb_dev.vinfo);
+		if(res < 0)
+			INFO("FBIOPAN_DISPLAY failed %d", errno);
+
+		res = ioctl(fb_dev.fb_fd, FBIO_WAITFORVSYNC, &crtc);
+		if(res < 0)
+			INFO("FBIO_WAITFORVSYNC failed %d", errno);
+	}
+	else
+	{
+		draw_with_offset(0, r, g, b, 0);
+
+		fb_dev.vinfo->activate = FB_ACTIVATE_VBL;
+		fb_dev.vinfo->xoffset = 0;
+		fb_dev.vinfo->yoffset = fb_dev.vinfo->yres;
+
+		res = ioctl(fb_dev.fb_fd, FBIOPAN_DISPLAY, fb_dev.vinfo);
+		if(res < 0)
+			INFO("FBIOPAN_DISPLAY failed %d", errno);
+
+		res = ioctl(fb_dev.fb_fd, FBIO_WAITFORVSYNC, &crtc);
+		if(res < 0)
+			INFO("FBIO_WAITFORVSYNC failed %d", errno);
+	}
+}
+
+void *fb_routine(void *ptr)
+{
+	fb_init();
+	INFO("Feamebuffer Init - OK");
+
+	unsigned char rr, gg, bb;
+
+	srand(time(NULL));
+
+	INFO("  width=%d\n  height=%d", fb_dev.width, fb_dev.height);
+
+	while(1)
+	{
+		switch (cmd)
+		{
+			case DRAW:
+				page_flip(r, g, b);
+
+				break;
+			case RANDOM_COLOR:
+
+				rr = rand() % 0xFF;
+				gg = rand() % 0xFF;
+				bb = rand() % 0xFF;
+
+				page_flip(rr, gg, bb);
+
+				break;
+
+			case DPMS_ON:
+			case DPMS_OFF:
+			case DPMS_SUSPEND:
+			case DPMS_STANDBY:
+
+				DPMS_set(cmd);
+
+				cmd = DEFAULT;
+
+				break;
+
+			case REINIT:
+
+				fb_init();
+				cmd = 0;
+
+				break;
+
+			default:
+
+				sleep(1);
+				printf("default");
+
+				break;
+		}
+	}
+
+	close(fb_dev.fb_fd);
+
+	return NULL;
+}
+
+void *console_routine(void *ptr)
+{
+	int user_cmd = -1;
+
+	while(1)
+	{
+		sleep(1);
+
+		printf ("\n------------------------------------------\n");
+
+		printf ("info:\n"
+				"  DRAW:         0\n"
+				"  RANDOM COLOR: 1\n"
+				"  DPMS_ON:      2\n"
+				"  DPMS_OFF:     3\n"
+				"  DPMS_STANDBY: 4\n"
+				"  DPMS_SUSPEND: 5\n"
+				"  DPMS_SUSPEND: 6\n"
+		);
+		printf("input command: ");
+		int ret = scanf("%d", &user_cmd);
+		(void) ret;
+
+		switch (user_cmd)
+		{
+
+			case 0: /* RANDOM COLOR */
+
+				printf("  cmd:" CONCAT(DRAW) "\n");
+				cmd = DRAW;
+
+				break;
+
+			case 1: /* RANDOM COLOR */
+
+				printf("  cmd:" CONCAT(RANDOM_COLOR) "\n");
+				cmd = RANDOM_COLOR;
+
+				break;
+
+			case 2: /* DPMS_ON */
+			case 3: /* DPMS_OFF */
+			case 4: /* DPMS_STANDBY */
+			case 5: /* DPMS_SUSPEND */
+
+				printf("  cmd:" CONCAT(DPMS) "\n");
+				cmd = user_cmd;
+
+				break;
+
+			case 6: /* REINIT */
+
+				printf("  cmd:" CONCAT(REINIT) "\n");
+				cmd = user_cmd;
+
+				break;
+
+
+			default:
+				break;
+		}
+
+		printf ("------------------------------------------\n\n");
+
+		user_cmd = -1;
+	}
+
+	return NULL;
+}
+
+void DPMS_set(int dpms_value)
+{
+	int fbmode = -1;
+	int ret = 0;
+
+	switch (dpms_value)
+	{
+		case DPMS_ON: fbmode = FB_BLANK_UNBLANK;
+			break;
+
+		case DPMS_OFF: fbmode = FB_BLANK_POWERDOWN;
+			break;
+
+		case DPMS_STANDBY: fbmode = FB_BLANK_VSYNC_SUSPEND;
+			break;
+
+		case DPMS_SUSPEND: fbmode = FB_BLANK_HSYNC_SUSPEND;
+			break;
+
+		default: perror("Never get here\n");
+			break;
+	}
+
+	ret = ioctl(fb_dev.fb_fd, FBIOBLANK, (void *)fbmode);
+	if (ret < 0)
+	{
+		perror("FBIOBLANK ioctl failed");
+
+	}
+
+	cmd = -1;
+}
+
+
 
 
